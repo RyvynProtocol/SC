@@ -6,8 +6,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import "../interfaces/IRyvynHandler.sol";
-import "../interfaces/ITreasuryManager.sol";
+import "src/interfaces/IRyvynHandler.sol";
+import "src/interfaces/ITreasuryManager.sol";
 
 contract RyUSD is ERC20, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -89,6 +89,10 @@ contract RyUSD is ERC20, Ownable, ReentrancyGuard {
         if (treasuryManager != address(0)) {
             underlyingToken.forceApprove(treasuryManager, amount);
             ITreasuryManager(treasuryManager).onMint(amount);
+        }
+
+        if (ryvynHandler != address(0)) {
+            IRyvynHandler(ryvynHandler).onMint(msg.sender, amount);
         }
 
         emit Deposit(msg.sender, amount, mintIndex);

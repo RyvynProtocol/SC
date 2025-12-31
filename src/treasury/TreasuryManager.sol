@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import "../interfaces/IMockVault.sol";
+import "src/interfaces/IMockVault.sol";
 
 contract TreasuryManager is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
