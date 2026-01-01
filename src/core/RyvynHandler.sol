@@ -16,7 +16,8 @@ contract RyvynHandler is Ownable {
         address indexed from,
         address indexed to,
         uint256 amount,
-        uint256 senderAge
+        uint256 senderAge,
+        uint256 receiverAge
     );
 
     error InvalidAddress();
@@ -39,20 +40,18 @@ contract RyvynHandler is Ownable {
         emit MintHandled(user, amount);
     }
 
-    // TODO: Transfer logic
-    // function handleTransfer(
-    //     address from,
-    //     address to,
-    //     uint256 amount
-    // ) external onlyRyUSD {
-    //     // if (from == address(0) || to == address(0)) revert InvalidAddress();
-    //     // TODO: Calculate reward split based on holding period
-    //     // uint256 senderAge = userBuckets[from].consumeBuckets(amount);
+    function handleTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) external onlyRyUSD {
+        if (from == address(0) || to == address(0)) revert InvalidAddress();
+        uint256 senderAge = userBuckets[from].consumeBucket(uint96(amount));
+        uint256 receiverAge = getWeightedAge(to);
+        userBuckets[to].addBucket(amount);
 
-    //     // userBuckets[to].addBucket(amount);
-
-    //     // emit TransferHandled(from, to, amount, senderAge);
-    // }
+        emit TransferHandled(from, to, amount, senderAge, receiverAge);
+    }
 
     // --- VIEW FUNCTIONS ---
     function getUserBucketInfo(
@@ -71,5 +70,19 @@ contract RyvynHandler is Ownable {
 
     function getBucketBalance(address user) external view returns (uint256) {
         return userBuckets[user].getTotalBalance();
+    }
+
+    function getWeightedAge(address user) internal view returns(uint256) {
+        TokenBucketLib.UserBuckets storage self = userBuckets[user];
+        uint256 totalBalance = 0;
+        uint256 totalWeightedTime = 0;
+
+        for(uint256 i = self.pointer; i < self.buckets.length; i++) {
+            totalWeightedTime+= (self.buckets[i].amount * (block.timestamp - self.buckets[i].timestamp));
+            totalBalance += self.buckets[i].amount;
+        }
+
+        if(totalBalance == 0) return 0;
+        return totalWeightedTime / totalBalance;
     }
 }

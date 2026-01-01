@@ -36,9 +36,40 @@ library TokenBucketLib {
         emit BucketAdded(msg.sender, amount, block.timestamp);
     }
 
-    // function consumeBucket() {
-    // TODO: consume from oldest buckets (FIFO)
-    // }
+    function consumeBucket(
+        UserBuckets storage self,
+        uint96 amount
+    ) 
+        internal returns (uint256 weightedAge) {
+            require(amount > 0, "Amount must be positive");
+
+            uint256 originalAmount = amount;
+            uint256 totalWeightedTime = 0;
+
+            for(uint256 i = self.pointer; i < self.buckets.length; i++) {
+                uint256 timeDiff = block.timestamp - self.buckets[i].timestamp;
+
+                if(amount <= self.buckets[i].amount) {
+                    totalWeightedTime += timeDiff * amount;
+                    self.buckets[i].amount -= amount;
+                    amount = 0;
+
+                    if(self.buckets[i].amount == 0) {
+                        self.pointer++;
+                    }
+                    break;
+                } else {
+                    totalWeightedTime += timeDiff * self.buckets[i].amount;
+                    amount -= self.buckets[i].amount;
+                    self.buckets[i].amount = 0;
+                    self.pointer++;
+                }
+            }
+            require(amount == 0, "Insufficient balance");
+            weightedAge = totalWeightedTime / originalAmount;
+            emit BucketConsumed(msg.sender, originalAmount, weightedAge);
+            return weightedAge;
+    }
 
     // --- VIEW FUNCTIONS ---
     function getTotalBalance(
