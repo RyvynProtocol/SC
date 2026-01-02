@@ -23,11 +23,15 @@ library TokenBucketLib {
 
     // --- ERROS ---
     error InvalidAmount();
+    error InsufficientBalance();
+    error AmountTooLarge();
+
+    uint256 internal constant MAX_BUCKETS_PER_CONSUME = 50;
 
     // -- FUNCTIONS ---
     function addBucket(UserBuckets storage self, uint256 amount) internal {
         if (amount <= 0) revert InvalidAmount();
-        require(amount <= type(uint96).max, "TokenBucket: amount too large");
+        if (amount > type(uint96).max) revert AmountTooLarge();
 
         self.buckets.push(
             Bucket({amount: uint96(amount), timestamp: uint32(block.timestamp)})
@@ -41,31 +45,36 @@ library TokenBucketLib {
         uint96 amount
     ) 
         internal returns (uint256 weightedAge) {
-            require(amount > 0, "Amount must be positive");
+            if(amount <= 0) revert InvalidAmount();
 
             uint256 originalAmount = amount;
             uint256 totalWeightedTime = 0;
 
-            for(uint256 i = self.pointer; i < self.buckets.length; i++) {
-                uint256 timeDiff = block.timestamp - self.buckets[i].timestamp;
+            uint32 pointer = self.pointer;
+            uint256 bucketsLength = self.buckets.length;
 
-                if(amount <= self.buckets[i].amount) {
+            for(uint256 i = pointer; i < bucketsLength && i < MAX_BUCKETS_PER_CONSUME; i++) {
+                Bucket storage bucket = self.buckets[i];
+                uint256 timeDiff = block.timestamp - bucket.timestamp;
+
+                if(amount <= bucket.amount) {
                     totalWeightedTime += timeDiff * amount;
-                    self.buckets[i].amount -= amount;
+                    bucket.amount -= amount;
                     amount = 0;
 
-                    if(self.buckets[i].amount == 0) {
-                        self.pointer++;
+                    if(bucket.amount == 0) {
+                        pointer++;
                     }
                     break;
                 } else {
-                    totalWeightedTime += timeDiff * self.buckets[i].amount;
-                    amount -= self.buckets[i].amount;
-                    self.buckets[i].amount = 0;
-                    self.pointer++;
+                    totalWeightedTime += timeDiff * bucket.amount;
+                    amount -= bucket.amount;
+                    bucket.amount = 0;
+                    pointer++;
                 }
             }
-            require(amount == 0, "Insufficient balance");
+            if(amount != 0) revert InsufficientBalance();
+            self.pointer = pointer;
             weightedAge = totalWeightedTime / originalAmount;
             emit BucketConsumed(msg.sender, originalAmount, weightedAge);
             return weightedAge;

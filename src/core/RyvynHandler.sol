@@ -76,10 +76,13 @@ contract RyvynHandler is Ownable {
         TokenBucketLib.UserBuckets storage self = userBuckets[user];
         uint256 totalBalance = 0;
         uint256 totalWeightedTime = 0;
+        uint256 bucketsLength = self.buckets.length;
+        uint32 pointer = self.pointer;
 
-        for(uint256 i = self.pointer; i < self.buckets.length; i++) {
-            totalWeightedTime+= (self.buckets[i].amount * (block.timestamp - self.buckets[i].timestamp));
-            totalBalance += self.buckets[i].amount;
+        for(uint256 i = pointer; i < bucketsLength && i < TokenBucketLib.MAX_BUCKETS_PER_CONSUME; i++) {
+            TokenBucketLib.Bucket memory bucket = self.buckets[i]; 
+            totalWeightedTime+= (bucket.amount * (block.timestamp - bucket.timestamp));
+            totalBalance += bucket.amount;
         }
 
         if(totalBalance == 0) return 0;
