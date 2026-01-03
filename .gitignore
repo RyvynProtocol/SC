@@ -15,6 +15,7 @@ docs/
 
 # Dependencies 
 node_modules/
+lib/
 
 # System Files 
 .DS_Store
