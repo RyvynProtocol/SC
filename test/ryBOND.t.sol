@@ -94,7 +94,7 @@ contract ryBONDTest is Test {
 
     function test_ConstructorSetsCorrectAddresses() public view {
         assertEq(ryBondContract.ryvynHandler(), address(handler));
-        assertEq(ryBondContract.vault(), address(vault));
+        assertEq(address(ryBondContract.vault()), address(vault));
         assertEq(ryBondContract.owner(), owner);
     }
 
@@ -121,10 +121,12 @@ contract ryBONDTest is Test {
             receiverReward
         );
 
-        assertEq(ryBondContract.pendingBalance(user1), senderReward);
-        assertEq(ryBondContract.pendingBalance(user2), receiverReward);
-        assertEq(ryBondContract.totalCredited(user1), senderReward);
-        assertEq(ryBondContract.totalCredited(user2), receiverReward);
+        assertEq(ryBondContract.storedBalance(user1), senderReward);
+        assertEq(ryBondContract.storedBalance(user2), receiverReward);
+        (, uint256 creditedUser1, ) = ryBondContract.getUserStats(user1);
+        (, uint256 creditedUser2, ) = ryBondContract.getUserStats(user2);
+        assertEq(creditedUser1, senderReward);
+        assertEq(creditedUser2, receiverReward);
     }
 
     function test_CreditTransferReward_EmitsEvent() public {
@@ -153,18 +155,18 @@ contract ryBONDTest is Test {
 
         handler.simulateTransferHook(user1, 200e18, user2, 100e18);
 
-        assertEq(ryBondContract.pendingBalance(user1), 300e18);
-        assertEq(ryBondContract.pendingBalance(user2), 150e18);
+        assertEq(ryBondContract.storedBalance(user1), 300e18);
+        assertEq(ryBondContract.storedBalance(user2), 150e18);
     }
 
     function test_CreditTransferReward_DynamicSplit() public {
         handler.simulateTransferHook(user1, 85e18, user2, 15e18);
-        assertEq(ryBondContract.pendingBalance(user1), 85e18);
-        assertEq(ryBondContract.pendingBalance(user2), 15e18);
+        assertEq(ryBondContract.storedBalance(user1), 85e18);
+        assertEq(ryBondContract.storedBalance(user2), 15e18);
 
         handler.simulateTransferHook(user3, 70e18, user2, 30e18);
-        assertEq(ryBondContract.pendingBalance(user3), 70e18);
-        assertEq(ryBondContract.pendingBalance(user2), 45e18);
+        assertEq(ryBondContract.storedBalance(user3), 70e18);
+        assertEq(ryBondContract.storedBalance(user2), 45e18);
     }
 
     function test_CreditTransferReward_OnlyHandler() public {
@@ -176,8 +178,8 @@ contract ryBONDTest is Test {
     function test_CreditTransferReward_ZeroSenderAddress() public {
         handler.simulateTransferHook(address(0), 100e18, user2, 50e18);
 
-        assertEq(ryBondContract.pendingBalance(address(0)), 0);
-        assertEq(ryBondContract.pendingBalance(user2), 50e18);
+        assertEq(ryBondContract.storedBalance(address(0)), 0);
+        assertEq(ryBondContract.storedBalance(user2), 50e18);
     }
 
     // ============ creditRyBond Tests ============
@@ -187,8 +189,9 @@ contract ryBONDTest is Test {
 
         handler.simulateCreditUser(user1, amount);
 
-        assertEq(ryBondContract.pendingBalance(user1), amount);
-        assertEq(ryBondContract.totalCredited(user1), amount);
+        assertEq(ryBondContract.storedBalance(user1), amount);
+        (, uint256 credited, ) = ryBondContract.getUserStats(user1);
+        assertEq(credited, amount);
     }
 
     function test_CreditRyBond_EmitsEvent() public {
@@ -220,8 +223,9 @@ contract ryBONDTest is Test {
         vm.prank(user1);
         ryBondContract.claim();
 
-        assertEq(ryBondContract.pendingBalance(user1), 0);
-        assertEq(ryBondContract.totalClaimed(user1), 100e18);
+        assertEq(ryBondContract.storedBalance(user1), 0);
+        (, , uint256 claimed) = ryBondContract.getUserStats(user1);
+        assertEq(claimed, 100e18);
         assertEq(vault.getDistribution(user1), 100e18);
     }
 
@@ -247,8 +251,9 @@ contract ryBONDTest is Test {
         vm.prank(user1);
         ryBondContract.claimAmount(60e18);
 
-        assertEq(ryBondContract.pendingBalance(user1), 40e18);
-        assertEq(ryBondContract.totalClaimed(user1), 60e18);
+        assertEq(ryBondContract.storedBalance(user1), 40e18);
+        (, , uint256 claimed) = ryBondContract.getUserStats(user1);
+        assertEq(claimed, 60e18);
         assertEq(vault.getDistribution(user1), 60e18);
     }
 
@@ -307,7 +312,7 @@ contract ryBONDTest is Test {
         address newVault = address(0x888);
 
         ryBondContract.setVault(newVault);
-        assertEq(ryBondContract.vault(), newVault);
+        assertEq(address(ryBondContract.vault()), newVault);
     }
 
     // ============ Lazy Accrual Tests ============
@@ -370,7 +375,8 @@ contract ryBONDTest is Test {
         ryBondContract.claim();
 
         assertEq(vault.getDistribution(user1), expectedTotal);
-        assertEq(ryBondContract.totalClaimed(user1), expectedTotal);
+        (, , uint256 claimed) = ryBondContract.getUserStats(user1);
+        assertEq(claimed, expectedTotal);
     }
 
     function test_LazyAccrual_ManualAccrueFunction() public {

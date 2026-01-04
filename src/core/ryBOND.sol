@@ -3,10 +3,10 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@interfaces/IMockVault.sol";
 
 contract ryBOND is Ownable, ReentrancyGuard {
     // ============ Events ============
-
     event RyBONDCredited(
         address indexed user,
         uint256 amount,
@@ -31,14 +31,19 @@ contract ryBOND is Ownable, ReentrancyGuard {
         uint256 timestamp
     );
 
+    // ============ Structs ============
+    struct UserInfo {
+        uint128 pendingBalance;
+        uint128 totalCredited;
+        uint128 totalClaimed;
+        uint64 lastUpdate;
+    }
+
     // ============ State Variables ============
-    mapping(address => uint256) public pendingBalance;
-    mapping(address => uint256) public totalCredited;
-    mapping(address => uint256) public totalClaimed;
-    mapping(address => uint256) public lastUpdate;
+    mapping(address => UserInfo) public userInfo;
 
     address public ryvynHandler;
-    address public vault;
+    IMockVault public vault;
 
     // Yield rate: growth rate per second SESUAIKAN SAMA FE BE nya ye
     // Example: 1e14 = 0.0001 ryBOND per second per ryBOND held (≈ 0.36 per hour)
@@ -63,28 +68,29 @@ contract ryBOND is Ownable, ReentrancyGuard {
     function _accrue(address user) internal {
         if (user == address(0)) return;
 
-        uint256 lastTime = lastUpdate[user];
-
+        UserInfo storage info = userInfo[user];
+        uint64 lastTime = info.lastUpdate;
         if (lastTime == 0) {
-            lastUpdate[user] = block.timestamp;
+            info.lastUpdate = uint64(block.timestamp);
             return;
         }
 
         uint256 elapsed = block.timestamp - lastTime;
         if (elapsed == 0) return;
 
-        if (yieldRatePerSecond > 0 && pendingBalance[user] > 0) {
-            uint256 yieldAmount = (pendingBalance[user] *
-                yieldRatePerSecond *
-                elapsed) / 1e18;
+        uint256 balance = info.pendingBalance;
+
+        if (yieldRatePerSecond > 0 && balance > 0) {
+            uint256 yieldAmount = (balance * yieldRatePerSecond * elapsed) /
+                1e18;
             if (yieldAmount > 0) {
-                pendingBalance[user] += yieldAmount;
-                totalCredited[user] += yieldAmount;
+                info.pendingBalance = uint128(balance + yieldAmount);
+                info.totalCredited += uint128(yieldAmount);
                 emit RyBONDAccrued(user, yieldAmount, block.timestamp);
             }
         }
 
-        lastUpdate[user] = block.timestamp;
+        info.lastUpdate = uint64(block.timestamp);
     }
 
     // ============ Constructor ============
@@ -94,7 +100,7 @@ contract ryBOND is Ownable, ReentrancyGuard {
         require(_vault != address(0), "ryBOND: vault is zero address");
 
         ryvynHandler = _ryvynHandler;
-        vault = _vault;
+        vault = IMockVault(_vault);
     }
 
     // ============ External Functions (Called by RyvynHandler) ============
@@ -105,8 +111,9 @@ contract ryBOND is Ownable, ReentrancyGuard {
 
         _accrue(user);
 
-        pendingBalance[user] += amount;
-        totalCredited[user] += amount;
+        UserInfo storage info = userInfo[user];
+        info.pendingBalance += uint128(amount);
+        info.totalCredited += uint128(amount);
 
         emit RyBONDCredited(user, amount, block.timestamp);
     }
@@ -121,13 +128,15 @@ contract ryBOND is Ownable, ReentrancyGuard {
         _accrue(receiver);
 
         if (sender != address(0) && senderReward > 0) {
-            pendingBalance[sender] += senderReward;
-            totalCredited[sender] += senderReward;
+            UserInfo storage senderInfo = userInfo[sender];
+            senderInfo.pendingBalance += uint128(senderReward);
+            senderInfo.totalCredited += uint128(senderReward);
         }
 
         if (receiver != address(0) && receiverReward > 0) {
-            pendingBalance[receiver] += receiverReward;
-            totalCredited[receiver] += receiverReward;
+            UserInfo storage receiverInfo = userInfo[receiver];
+            receiverInfo.pendingBalance += uint128(receiverReward);
+            receiverInfo.totalCredited += uint128(receiverReward);
         }
 
         emit TransferRewardDistributed(
@@ -144,20 +153,14 @@ contract ryBOND is Ownable, ReentrancyGuard {
     function claim() external nonReentrant {
         _accrue(msg.sender);
 
-        uint256 amount = pendingBalance[msg.sender];
+        UserInfo storage info = userInfo[msg.sender];
+        uint256 amount = info.pendingBalance;
         require(amount > 0, "ryBOND: nothing to claim");
 
-        pendingBalance[msg.sender] = 0;
-        totalClaimed[msg.sender] += amount;
+        info.pendingBalance = 0;
+        info.totalClaimed += uint128(amount);
 
-        (bool success, ) = vault.call(
-            abi.encodeWithSignature(
-                "distributeYield(address,uint256)",
-                msg.sender,
-                amount
-            )
-        );
-        require(success, "ryBOND: vault distribution failed");
+        vault.distributeYield(msg.sender, amount);
 
         emit RyBONDClaimed(msg.sender, amount, block.timestamp);
     }
@@ -167,22 +170,13 @@ contract ryBOND is Ownable, ReentrancyGuard {
 
         _accrue(msg.sender);
 
-        require(
-            pendingBalance[msg.sender] >= amount,
-            "ryBOND: insufficient balance"
-        );
+        UserInfo storage info = userInfo[msg.sender];
+        require(info.pendingBalance >= amount, "ryBOND: insufficient balance");
 
-        pendingBalance[msg.sender] -= amount;
-        totalClaimed[msg.sender] += amount;
+        info.pendingBalance -= uint128(amount);
+        info.totalClaimed += uint128(amount);
 
-        (bool success, ) = vault.call(
-            abi.encodeWithSignature(
-                "distributeYield(address,uint256)",
-                msg.sender,
-                amount
-            )
-        );
-        require(success, "ryBOND: vault distribution failed");
+        vault.distributeYield(msg.sender, amount);
 
         emit RyBONDClaimed(msg.sender, amount, block.timestamp);
     }
@@ -190,9 +184,10 @@ contract ryBOND is Ownable, ReentrancyGuard {
     // ============ View Functions ============
 
     function pendingRyBond(address user) external view returns (uint256) {
-        uint256 balance = pendingBalance[user];
+        UserInfo storage info = userInfo[user];
+        uint256 balance = info.pendingBalance;
 
-        uint256 lastTime = lastUpdate[user];
+        uint64 lastTime = info.lastUpdate;
         if (lastTime == 0 || yieldRatePerSecond == 0 || balance == 0) {
             return balance;
         }
@@ -205,7 +200,7 @@ contract ryBOND is Ownable, ReentrancyGuard {
     }
 
     function storedBalance(address user) external view returns (uint256) {
-        return pendingBalance[user];
+        return userInfo[user].pendingBalance;
     }
 
     function getUserStats(
@@ -215,7 +210,8 @@ contract ryBOND is Ownable, ReentrancyGuard {
         view
         returns (uint256 pending, uint256 credited, uint256 claimed)
     {
-        return (pendingBalance[user], totalCredited[user], totalClaimed[user]);
+        UserInfo storage info = userInfo[user];
+        return (info.pendingBalance, info.totalCredited, info.totalClaimed);
     }
 
     // ============ Admin Functions ============
@@ -227,7 +223,7 @@ contract ryBOND is Ownable, ReentrancyGuard {
 
     function setVault(address _vault) external onlyOwner {
         require(_vault != address(0), "ryBOND: vault is zero address");
-        vault = _vault;
+        vault = IMockVault(_vault);
     }
 
     function setYieldRate(uint256 newRate) external onlyOwner {
