@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import "src/interfaces/IMockVault.sol";
+import "src/interfaces/IYieldManager.sol";
 
 contract TreasuryManager is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -18,6 +19,7 @@ contract TreasuryManager is Ownable, ReentrancyGuard {
     address public strategyLending;
     address public reserveWallet;
     address public ryUSD;
+    address public yieldManager;
 
     uint256 private constant BASIS_POINTS = 10000;
 
@@ -48,6 +50,12 @@ contract TreasuryManager is Ownable, ReentrancyGuard {
         address oldAddress,
         address newAddress
     );
+    event YieldHarvested(
+        string indexed strategy,
+        uint256 amount,
+        uint256 timestamp
+    );
+    event YieldForwarded(address indexed yieldManager, uint256 amount);
 
     // --- ERROR ----
     error InvalidAddress();
@@ -100,6 +108,11 @@ contract TreasuryManager is Ownable, ReentrancyGuard {
     function setReserveWallet(address _reserve) external onlyOwner {
         emit StrategyUpdated("Reserve", reserveWallet, _reserve);
         reserveWallet = _reserve;
+    }
+
+    function setYieldManager(address _yieldManager) external onlyOwner {
+        if (_yieldManager == address(0)) revert InvalidAddress();
+        yieldManager = _yieldManager;
     }
 
     function allocate() external onlyOwner {
@@ -222,5 +235,49 @@ contract TreasuryManager is Ownable, ReentrancyGuard {
 
     function canRedeem(uint256 amount) external view returns (bool) {
         return hotWalletBalance >= amount;
+    }
+
+    function harvestAllYield() external onlyOwner {
+        uint256 totalYield = 0;
+
+        if (strategyUSDY != address(0)) {
+            uint256 usdyYield = _harvestVaultYield(strategyUSDY, "USDY");
+            totalYield += usdyYield;
+        }
+
+        if (strategyOUSG != address(0)) {
+            uint256 ousgYield = _harvestVaultYield(strategyOUSG, "OUSG");
+            totalYield += ousgYield;
+        }
+
+        if (strategyLending != address(0)) {
+            uint256 lendingYield = _harvestVaultYield(
+                strategyLending,
+                "Lending"
+            );
+            totalYield += lendingYield;
+        }
+
+        // Forward total yield to YieldManager
+        if (totalYield > 0 && yieldManager != address(0)) {
+            usdc.forceApprove(yieldManager, totalYield);
+            emit YieldForwarded(yieldManager, totalYield);
+        }
+    }
+
+    function _harvestVaultYield(
+        address vault,
+        string memory strategyName
+    ) internal returns (uint256 yieldAmount) {
+        uint256 availableYield = IMockVault(vault).getAvailableYield();
+
+        if (availableYield > 0) {
+            IMockVault(vault).withdraw(availableYield);
+
+            emit YieldHarvested(strategyName, availableYield, block.timestamp);
+            return availableYield;
+        }
+
+        return 0;
     }
 }

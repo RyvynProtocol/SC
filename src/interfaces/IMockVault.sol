@@ -6,4 +6,5 @@ interface IMockVault {
     function withdraw(uint256 amount) external;
     function getBalance() external view returns (uint256);
     function distributeYield(address to, uint256 amount) external;
+    function getAvailableYield() external view returns (uint256);
 }
