@@ -83,7 +83,7 @@ contract DeployScript is Script {
         console.log("YieldManager deployed at:", address(yieldManager));
 
         MockVault yieldVault = new MockVault(
-            address(mockUSDC),
+            address(ryUSD),
             "ryBOND Yield Vault",
             deployer
         );

@@ -73,6 +73,16 @@ contract MockVault is Ownable {
         emit YieldInjected(amount);
     }
 
+    function distributeYield(address to, uint256 amount) external {
+        if (to == address(0)) revert InvalidAddress();
+        if (amount == 0) revert InvalidAmount();
+
+        uint256 currentBalance = asset.balanceOf(address(this));
+        if (amount > currentBalance) revert InsufficientBalance();
+
+        asset.safeTransfer(to, amount);
+    }
+
     // --- VIEW FUNCTIONS ---
     function getBalance() external view returns (uint256) {
         return asset.balanceOf(address(this));
