@@ -14,6 +14,7 @@ contract YieldManager is Ownable {
     uint256 public unallocatedYieldPool;
     uint256 public targetUtilization = 8000;
     uint256 public constant BASIS_POINTS = 10000;
+    uint256 public constant MAX_REWARD_RATE = 1000; // Cap at 10%
 
     uint256 public constant SNAPSHOT_PERIOD = 1 days;
     uint256 public constant MOVING_AVERAGE_DAYS = 7;
@@ -181,8 +182,8 @@ contract YieldManager is Ownable {
             BASIS_POINTS;
         rewardRate = (utilizableYield * BASIS_POINTS) / movingAvg;
 
-        if (rewardRate > BASIS_POINTS) {
-            rewardRate = BASIS_POINTS;
+        if (rewardRate > MAX_REWARD_RATE) {
+            rewardRate = MAX_REWARD_RATE;
         }
     }
 
