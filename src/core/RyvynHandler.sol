@@ -61,6 +61,8 @@ contract RyvynHandler is Ownable {
         userBuckets[user].addBucket(amount);
 
         uint256 reward = 0;
+        // Reward on mint disabled to prevent instant arbitrage
+        /*
         if (ryBOND != address(0) && yieldManager != address(0)) {
             uint256 rewardRate = IYieldManager(yieldManager)
                 .calculateDynamicRewardRate();
@@ -71,6 +73,7 @@ contract RyvynHandler is Ownable {
                 IRyBOND(ryBOND).creditRyBond(user, reward);
             }
         }
+        */
 
         emit MintHandled(user, amount, reward);
     }
