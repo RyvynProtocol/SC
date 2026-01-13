@@ -22,7 +22,7 @@ contract ryBOND is Ownable, ReentrancyGuard {
         uint256 amount,
         uint256 timestamp
     );
-    event YieldRateUpdated(uint256 oldRate, uint256 newRate);
+    event VestingDurationUpdated(uint256 oldDuration, uint256 newDuration);
     event TransferRewardDistributed(
         address indexed sender,
         address indexed receiver,
@@ -33,9 +33,9 @@ contract ryBOND is Ownable, ReentrancyGuard {
 
     // ============ Structs ============
     struct UserInfo {
-        uint128 pendingBalance;
-        uint128 totalCredited;
-        uint128 totalClaimed;
+        uint128 lockedBalance;
+        uint128 vestedBalance;
+        uint64 vestingEnd;
         uint64 lastUpdate;
     }
 
@@ -45,9 +45,7 @@ contract ryBOND is Ownable, ReentrancyGuard {
     address public ryvynHandler;
     IMockVault public vault;
 
-    // Yield rate: growth rate per second SESUAIKAN SAMA FE BE nya ye
-    // Example: 1e14 = 0.0001 ryBOND per second per ryBOND held (≈ 0.36 per hour)
-    uint256 public yieldRatePerSecond;
+    uint256 public vestingDuration;
 
     // ============ Modifiers ============
 
@@ -65,32 +63,39 @@ contract ryBOND is Ownable, ReentrancyGuard {
 
     // ============ Internal Functions ============
 
-    function _accrue(address user) internal {
+    function _updateVesting(address user) internal {
         if (user == address(0)) return;
 
         UserInfo storage info = userInfo[user];
-        uint64 lastTime = info.lastUpdate;
-        if (lastTime == 0) {
-            info.lastUpdate = uint64(block.timestamp);
+
+        if (info.lastUpdate >= info.vestingEnd) {
             return;
         }
 
-        uint256 elapsed = block.timestamp - lastTime;
-        if (elapsed == 0) return;
+        uint256 currentTime = block.timestamp;
+        if (currentTime > info.vestingEnd) {
+            currentTime = info.vestingEnd;
+        }
 
-        uint256 balance = info.pendingBalance;
+        uint256 elapsedTime = currentTime - info.lastUpdate;
+        uint256 totalVestingTime = info.vestingEnd - info.lastUpdate;
 
-        if (yieldRatePerSecond > 0 && balance > 0) {
-            uint256 yieldAmount = (balance * yieldRatePerSecond * elapsed) /
-                1e18;
-            if (yieldAmount > 0) {
-                info.pendingBalance = uint128(balance + yieldAmount);
-                info.totalCredited += uint128(yieldAmount);
-                emit RyBONDAccrued(user, yieldAmount, block.timestamp);
+        if (totalVestingTime > 0 && elapsedTime > 0) {
+            uint256 vestedAmount = (uint256(info.lockedBalance) * elapsedTime) /
+                totalVestingTime;
+
+            if (vestedAmount > 0) {
+                if (vestedAmount > info.lockedBalance) {
+                    vestedAmount = info.lockedBalance;
+                }
+
+                info.lockedBalance -= uint128(vestedAmount);
+                info.vestedBalance += uint128(vestedAmount);
+                emit RyBONDAccrued(user, vestedAmount, block.timestamp);
             }
         }
 
-        info.lastUpdate = uint64(block.timestamp);
+        info.lastUpdate = uint64(currentTime);
     }
 
     // ============ Constructor ============
@@ -101,6 +106,7 @@ contract ryBOND is Ownable, ReentrancyGuard {
 
         ryvynHandler = _ryvynHandler;
         vault = IMockVault(_vault);
+        vestingDuration = 7 days; // 7 days vesting
     }
 
     // ============ External Functions (Called by RyvynHandler) ============
@@ -109,11 +115,14 @@ contract ryBOND is Ownable, ReentrancyGuard {
         require(user != address(0), "ryBOND: user is zero address");
         require(amount > 0, "ryBOND: amount is zero");
 
-        _accrue(user);
+        _updateVesting(user);
 
         UserInfo storage info = userInfo[user];
-        info.pendingBalance += uint128(amount);
-        info.totalCredited += uint128(amount);
+
+        info.lockedBalance += uint128(amount);
+
+        info.lastUpdate = uint64(block.timestamp);
+        info.vestingEnd = uint64(block.timestamp + vestingDuration);
 
         emit RyBONDCredited(user, amount, block.timestamp);
     }
@@ -124,19 +133,12 @@ contract ryBOND is Ownable, ReentrancyGuard {
         address receiver,
         uint256 receiverReward
     ) external onlyHandler {
-        _accrue(sender);
-        _accrue(receiver);
-
         if (sender != address(0) && senderReward > 0) {
-            UserInfo storage senderInfo = userInfo[sender];
-            senderInfo.pendingBalance += uint128(senderReward);
-            senderInfo.totalCredited += uint128(senderReward);
+            _credit(sender, senderReward);
         }
 
         if (receiver != address(0) && receiverReward > 0) {
-            UserInfo storage receiverInfo = userInfo[receiver];
-            receiverInfo.pendingBalance += uint128(receiverReward);
-            receiverInfo.totalCredited += uint128(receiverReward);
+            _credit(receiver, receiverReward);
         }
 
         emit TransferRewardDistributed(
@@ -148,33 +150,24 @@ contract ryBOND is Ownable, ReentrancyGuard {
         );
     }
 
+    function _credit(address user, uint256 amount) internal {
+        _updateVesting(user);
+        UserInfo storage info = userInfo[user];
+        info.lockedBalance += uint128(amount);
+        info.lastUpdate = uint64(block.timestamp);
+        info.vestingEnd = uint64(block.timestamp + vestingDuration);
+    }
+
     // ============ User Functions ============
 
     function claim() external nonReentrant {
-        _accrue(msg.sender);
+        _updateVesting(msg.sender);
 
         UserInfo storage info = userInfo[msg.sender];
-        uint256 amount = info.pendingBalance;
+        uint256 amount = info.vestedBalance;
         require(amount > 0, "ryBOND: nothing to claim");
 
-        info.pendingBalance = 0;
-        info.totalClaimed += uint128(amount);
-
-        vault.distributeYield(msg.sender, amount);
-
-        emit RyBONDClaimed(msg.sender, amount, block.timestamp);
-    }
-
-    function claimAmount(uint256 amount) external nonReentrant {
-        require(amount > 0, "ryBOND: amount is zero");
-
-        _accrue(msg.sender);
-
-        UserInfo storage info = userInfo[msg.sender];
-        require(info.pendingBalance >= amount, "ryBOND: insufficient balance");
-
-        info.pendingBalance -= uint128(amount);
-        info.totalClaimed += uint128(amount);
+        info.vestedBalance = 0;
 
         vault.distributeYield(msg.sender, amount);
 
@@ -185,33 +178,42 @@ contract ryBOND is Ownable, ReentrancyGuard {
 
     function pendingRyBond(address user) external view returns (uint256) {
         UserInfo storage info = userInfo[user];
-        uint256 balance = info.pendingBalance;
 
-        uint64 lastTime = info.lastUpdate;
-        if (lastTime == 0 || yieldRatePerSecond == 0 || balance == 0) {
-            return balance;
+        uint256 vested = info.vestedBalance;
+        uint256 locked = info.lockedBalance;
+
+        if (locked == 0 || block.timestamp < info.lastUpdate) {
+            return vested;
         }
 
-        uint256 elapsed = block.timestamp - lastTime;
-        uint256 simulatedYield = (balance * yieldRatePerSecond * elapsed) /
-            1e18;
+        uint256 currentTime = block.timestamp;
+        if (currentTime > info.vestingEnd) {
+            currentTime = info.vestingEnd;
+        }
 
-        return balance + simulatedYield;
+        uint256 elapsedTime = currentTime - info.lastUpdate;
+        uint256 totalVestingTime = info.vestingEnd - info.lastUpdate;
+
+        if (totalVestingTime > 0) {
+            uint256 newVested = (uint256(locked) * elapsedTime) /
+                totalVestingTime;
+            vested += newVested;
+        }
+
+        return vested;
     }
 
-    function storedBalance(address user) external view returns (uint256) {
-        return userInfo[user].pendingBalance;
-    }
-
-    function getUserStats(
-        address user
-    )
-        external
-        view
-        returns (uint256 pending, uint256 credited, uint256 claimed)
-    {
+    function getFlowRate(address user) external view returns (uint256) {
         UserInfo storage info = userInfo[user];
-        return (info.pendingBalance, info.totalCredited, info.totalClaimed);
+        if (info.lockedBalance == 0 || block.timestamp >= info.vestingEnd) {
+            return 0;
+        }
+
+        uint256 remainingTime = info.vestingEnd - block.timestamp;
+        if (remainingTime == 0) return 0;
+
+        // Return amount per second
+        return (uint256(info.lockedBalance) * 1e18) / remainingTime; // Scaled by 1e18 for precision
     }
 
     // ============ Admin Functions ============
@@ -226,13 +228,9 @@ contract ryBOND is Ownable, ReentrancyGuard {
         vault = IMockVault(_vault);
     }
 
-    function setYieldRate(uint256 newRate) external onlyOwner {
-        uint256 oldRate = yieldRatePerSecond;
-        yieldRatePerSecond = newRate;
-        emit YieldRateUpdated(oldRate, newRate);
-    }
-
-    function accrue(address user) external {
-        _accrue(user);
+    function setVestingDuration(uint256 newDuration) external onlyOwner {
+        uint256 oldDuration = vestingDuration;
+        vestingDuration = newDuration;
+        emit VestingDurationUpdated(oldDuration, newDuration);
     }
 }
