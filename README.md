@@ -22,7 +22,7 @@ Ryvyn Protocol provides a sustainable yield mechanism through:
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                           ryUSD                                 │
-│                (ERC20 Stablecoin - 1:1 USDC)                   │
+│                (ERC20 Stablecoin - 1:1 USDC)                    │
 └──────────────┬─────────────────────────────────┬────────────────┘
                │                                 │
                ▼                                 ▼
@@ -30,13 +30,13 @@ Ryvyn Protocol provides a sustainable yield mechanism through:
 │     TreasuryManager      │      │       RyvynHandler           │
 │   (Fund Allocation)      │      │    (Reward Calculation)      │
 │                          │      │                              │
-│  ┌──────────────────┐   │      │   ┌─────────────────────┐    │
-│  │   Strategies:    │   │      │   │   Token Buckets     │    │
-│  │ • USDY          │   │      │   │   (Age Tracking)    │    │
-│  │ • OUSG          │   │      │   └─────────────────────┘    │
-│  │ • Lending       │   │      │              │               │
-│  │ • Reserve       │   │      │              ▼               │
-│  └──────────────────┘   │      │   ┌─────────────────────┐    │
+│  ┌──────────────────┐    │      │   ┌─────────────────────┐    │
+│  │   Strategies:    │    │      │   │   Token Buckets     │    │
+│  │ • USDY           │    │      │   │   (Age Tracking)    │    │
+│  │ • OUSG           │    │      │   └─────────────────────┘    │
+│  │ • Lending        │    │      │              │               │
+│  │ • Reserve        │    │      │              ▼               │
+│  └──────────────────┘    │      │   ┌─────────────────────┐    │
 └──────────────────────────┘      │   │   YieldManager      │    │
                │                  │   │ (Dynamic Rewards)   │    │
                │                  │   └─────────────────────┘    │
@@ -45,8 +45,8 @@ Ryvyn Protocol provides a sustainable yield mechanism through:
                ▼                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                          ryBOND                                 │
-│                 (Vested Yield Rewards)                         │
-│              - Locked → Vested → Claimable                     │
+│                 (Vested Yield Rewards)                          │
+│              - Locked → Vested → Claimable                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
